@@ -2,7 +2,9 @@ import json
 import re
 import math
 from collections import defaultdict
+from nltk.stem import PorterStemmer
 
+stemmer = PorterStemmer()
 STOPWORDS = {
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
     "in", "on", "at", "to", "for", "of", "with", "by", "from", "as",
@@ -15,8 +17,9 @@ TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 def tokenize(text):
     text = text.lower()
-    tokens = TOKEN_RE.findall(text)          # keeps only letters/digits, splits on everything else
-    return [t for t in tokens if t not in STOPWORDS and len(t) > 1]
+    tokens = TOKEN_RE.findall(text)
+    tokens = [t for t in tokens if t not in STOPWORDS and len(t) > 1]
+    return [stemmer.stem(t) for t in tokens]
 
 
 class SearchIndex:
