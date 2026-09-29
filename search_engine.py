@@ -59,15 +59,45 @@ class SearchIndex:
             result_ids |= self.inverted_index.get(tok, set())
         return query_tokens, result_ids
 
+    def idf(self, term):
+        n_docs = len(self.documents)
+        df = self.doc_freq.get(term, 0)
+        if df == 0:
+            return 0.0
+        # standard BM25 IDF formula (never goes negative, unlike raw log(N/df))
+        return math.log((n_docs - df + 0.5) / (df + 0.5) + 1)
+
+    def bm25_score(self, doc_id, query_tokens, k1=1.5, b=0.75):
+        avg_len = sum(self.doc_len) / len(self.doc_len)
+        doc_len = self.doc_len[doc_id]
+        tokens_in_doc = self.doc_tokens[doc_id]
+
+        score = 0.0
+        for term in query_tokens:
+            freq = tokens_in_doc.count(term)     # how many times term appears in this doc
+            if freq == 0:
+                continue
+            idf = self.idf(term)
+            numerator = freq * (k1 + 1)
+            denominator = freq + k1 * (1 - b + b * doc_len / avg_len)
+            score += idf * (numerator / denominator)
+        return score
+
+    def search(self, query, top_k=10):
+        query_tokens, candidate_ids = self.candidates(query)
+        scored = [(doc_id, self.bm25_score(doc_id, query_tokens))
+                  for doc_id in candidate_ids]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[:top_k]
 
 if __name__ == "__main__":
     idx = SearchIndex()
     idx.build("data/papers.jsonl")
 
-    # quick manual test
     query = "graph neural network"
-    tokens, hits = idx.candidates(query)
-    print(f"\nQuery tokens: {tokens}")
-    print(f"Documents containing at least one query word: {len(hits)}")
-    for doc_id in list(hits)[:3]:
-        print(" -", idx.documents[doc_id]["title"])
+    print(f"\nSearching: '{query}'\n")
+    results = idx.search(query, top_k=5)
+
+    for rank, (doc_id, score) in enumerate(results, 1):
+        doc = idx.documents[doc_id]
+        print(f"{rank}. [{score:.2f}] {doc['title']}")
