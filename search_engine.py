@@ -55,8 +55,8 @@ class SearchIndex:
               f"{len(self.inverted_index)} unique words")
 
     def candidates(self, query):
-        """Return doc ids that contain at least one query word."""
-        query_tokens = tokenize(query)
+        raw_tokens = tokenize(query)
+        query_tokens = [self.correct_term(t) for t in raw_tokens]
         result_ids = set()
         for tok in query_tokens:
             result_ids |= self.inverted_index.get(tok, set())
@@ -92,6 +92,39 @@ class SearchIndex:
                   for doc_id in candidate_ids]
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:top_k]
+
+    def edit_distance(self, a, b):
+        """Classic Levenshtein distance via dynamic programming."""
+        m, n = len(a), len(b)
+        dp = [[0] * (n + 1) for _ in range(m + 1)]
+        for i in range(m + 1):
+            dp[i][0] = i
+        for j in range(n + 1):
+            dp[0][j] = j
+        for i in range(1, m + 1):
+            for j in range(1, n + 1):
+                if a[i - 1] == b[j - 1]:
+                    dp[i][j] = dp[i - 1][j - 1]
+                else:
+                    dp[i][j] = 1 + min(
+                        dp[i - 1][j],      # delete
+                        dp[i][j - 1],      # insert
+                        dp[i - 1][j - 1],  # substitute
+                    )
+        return dp[m][n]
+
+    def correct_term(self, term, max_distance=2):
+        """If term isn't in the index, find the closest indexed word within max_distance."""
+        if term in self.inverted_index:
+            return term
+        best_word, best_dist = None, max_distance + 1
+        for indexed_word in self.doc_freq:
+            if abs(len(indexed_word) - len(term)) > max_distance:
+                continue  # quick skip: length differs too much to be close
+            dist = self.edit_distance(term, indexed_word)
+            if dist < best_dist:
+                best_word, best_dist = indexed_word, dist
+        return best_word if best_word else term
 
 if __name__ == "__main__":
     idx = SearchIndex()
