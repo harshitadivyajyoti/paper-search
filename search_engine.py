@@ -3,6 +3,7 @@ import re
 import math
 from collections import defaultdict
 from nltk.stem import PorterStemmer
+from collections import Counter
 
 stemmer = PorterStemmer()
 STOPWORDS = {
@@ -29,6 +30,8 @@ class SearchIndex:
         self.inverted_index = defaultdict(set)  # word -> set of doc positions
         self.doc_freq = defaultdict(int)      # word -> number of docs containing it
         self.doc_len = []                     # token count per doc (needed for BM25 tomorrow)
+        self.term_freqs = []
+        self.avg_doc_len = 0.0
 
     def add_document(self, doc):
         text = doc["title"] + " " + doc["abstract"]
@@ -38,6 +41,7 @@ class SearchIndex:
         self.documents.append(doc)
         self.doc_tokens.append(tokens)
         self.doc_len.append(len(tokens))
+        self.term_freqs.append(Counter(tokens))
 
         seen_in_this_doc = set()
         for tok in tokens:
@@ -51,6 +55,7 @@ class SearchIndex:
             for line in f:
                 doc = json.loads(line)
                 self.add_document(doc)
+        self.avg_doc_len = sum(self.doc_len) / len(self.doc_len)
         print(f"Indexed {len(self.documents)} documents, "
               f"{len(self.inverted_index)} unique words")
 
@@ -71,13 +76,13 @@ class SearchIndex:
         return math.log((n_docs - df + 0.5) / (df + 0.5) + 1)
 
     def bm25_score(self, doc_id, query_tokens, k1=1.5, b=0.75):
-        avg_len = sum(self.doc_len) / len(self.doc_len)
+        avg_len = self.avg_doc_len
         doc_len = self.doc_len[doc_id]
         tokens_in_doc = self.doc_tokens[doc_id]
 
         score = 0.0
         for term in query_tokens:
-            freq = tokens_in_doc.count(term)     # how many times term appears in this doc
+            freq = self.term_freqs[doc_id].get(term, 0)     # how many times term appears in this doc
             if freq == 0:
                 continue
             idf = self.idf(term)
