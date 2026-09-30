@@ -4,6 +4,7 @@ import math
 from collections import defaultdict
 from nltk.stem import PorterStemmer
 from collections import Counter
+import numpy as np
 
 stemmer = PorterStemmer()
 STOPWORDS = {
@@ -130,6 +131,59 @@ class SearchIndex:
             if dist < best_dist:
                 best_word, best_dist = indexed_word, dist
         return best_word if best_word else term
+
+    def hybrid_search(self, query, semantic, top_k=10, alpha=0.5):
+        bm25_results = dict(self.search(query, top_k=len(self.documents)))
+        sem_scores = semantic.similarity_scores(query)
+        max_bm25 = max(bm25_results.values()) if bm25_results else 1.0
+
+        combined = []
+        for doc_id in range(len(self.documents)):
+            bm25_norm = bm25_results.get(doc_id, 0.0) / max_bm25 if max_bm25 > 0 else 0.0
+            sem = float(sem_scores[doc_id])
+            score = alpha * bm25_norm + (1 - alpha) * sem
+            combined.append((doc_id, score, sem))
+
+        combined.sort(key=lambda x: x[1], reverse=True)
+        return combined[:top_k]   # now returns (doc_id, combined_score, raw_semantic_score)
+
+    def add_paper_live(self, doc, jsonl_path="data/papers.jsonl"):
+        """Add one new paper to the in-memory index AND persist it to disk."""
+        self.add_document(doc)
+        self.avg_doc_len = sum(self.doc_len) / len(self.doc_len)
+        with open(jsonl_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(doc) + "\n")
+        return len(self.documents) - 1   # new doc's id
+
+class SemanticSearch:
+    def __init__(self, model_name="all-MiniLM-L6-v2", emb_path="data/embeddings.npy"):
+        from sentence_transformers import SentenceTransformer
+        self.model = SentenceTransformer(model_name)
+        self.emb_path = emb_path
+        self.vectors = np.load(emb_path)
+        self._normalize()
+
+    def _normalize(self):
+        norms = np.linalg.norm(self.vectors, axis=1, keepdims=True)
+        norms[norms == 0] = 1
+        self.vectors = self.vectors / norms
+
+    def query_vector(self, text):
+        v = self.model.encode([text])[0]
+        n = np.linalg.norm(v)
+        return v / n if n > 0 else v
+
+    def similarity_scores(self, query):
+        q = self.query_vector(query)
+        return self.vectors @ q
+
+    def add_document(self, text):
+        """Encode one new document and append it, keeping the .npy file in sync."""
+        v = self.model.encode([text])[0]
+        n = np.linalg.norm(v)
+        v = v / n if n > 0 else v
+        self.vectors = np.vstack([self.vectors, v])
+        np.save(self.emb_path, self.vectors)
 
 if __name__ == "__main__":
     idx = SearchIndex()
