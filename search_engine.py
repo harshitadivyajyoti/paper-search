@@ -33,6 +33,8 @@ class SearchIndex:
         self.doc_len = []                     # token count per doc (needed for BM25 tomorrow)
         self.term_freqs = []
         self.avg_doc_len = 0.0
+        self.raw_vocab = Counter()
+        self._corr_cache = {}
 
     def add_document(self, doc):
         text = doc["title"] + " " + doc["abstract"]
@@ -43,6 +45,7 @@ class SearchIndex:
         self.doc_tokens.append(tokens)
         self.doc_len.append(len(tokens))
         self.term_freqs.append(Counter(tokens))
+        self.raw_vocab.update(TOKEN_RE.findall(text.lower()))
 
         seen_in_this_doc = set()
         for tok in tokens:
@@ -133,8 +136,9 @@ class SearchIndex:
         return best_word if best_word else term
 
     def hybrid_search(self, query, semantic, top_k=10, alpha=0.5):
-        bm25_results = dict(self.search(query, top_k=len(self.documents)))
-        sem_scores = semantic.similarity_scores(query)
+        corrected_query = self.correct_query_text(query)
+        bm25_results = dict(self.search(corrected_query, top_k=len(self.documents)))
+        sem_scores = semantic.similarity_scores(corrected_query)
         max_bm25 = max(bm25_results.values()) if bm25_results else 1.0
 
         combined = []
@@ -154,6 +158,27 @@ class SearchIndex:
         with open(jsonl_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(doc) + "\n")
         return len(self.documents) - 1   # new doc's id
+
+    def correct_word(self, w):
+        if w in self.raw_vocab or w in STOPWORDS or len(w) <= 3 or w.isdigit():
+            return w
+        if w in self._corr_cache:
+            return self._corr_cache[w]
+        max_d = 1 if len(w) <= 5 else 2
+        best, best_key = w, None
+        for cand, freq in self.raw_vocab.items():
+            if abs(len(cand) - len(w)) > max_d:
+                continue
+            d = self.edit_distance(w, cand)
+            if d <= max_d:
+                key = (d, -freq)          # closest first, then most common word
+                if best_key is None or key < best_key:
+                    best, best_key = cand, key
+        self._corr_cache[w] = best
+        return best
+
+    def correct_query_text(self, query):
+        return " ".join(self.correct_word(w) for w in TOKEN_RE.findall(query.lower()))
 
 class SemanticSearch:
     def __init__(self, model_name="all-MiniLM-L6-v2", emb_path="data/embeddings.npy"):

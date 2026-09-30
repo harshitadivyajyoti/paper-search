@@ -22,6 +22,16 @@
 <div id="stats"></div>
 <div id="results"></div>
 
+<hr style="margin: 40px 0; border: none; border-top: 1px solid #ddd;">
+
+<h2>Ask a Question</h2>
+<p style="color:#666; font-size: 13px;">Ask in plain English. The answer is generated only from the retrieved papers below it, with citations.</p>
+<textarea id="askBox" rows="2" placeholder="e.g. What are common approaches to reinforcement learning?"
+  style="width:100%; padding:10px; font-size:15px; box-sizing:border-box; border:1px solid #ccc; border-radius:6px;"></textarea>
+<button id="askBtn" style="margin-top:8px; padding:8px 16px; font-size:14px; border-radius:6px; border:1px solid #333; background:#1a1a1a; color:white; cursor:pointer;">Ask</button>
+<div id="askStatus" style="color:#666; font-size:13px; margin-top:10px;"></div>
+<div id="askAnswer" style="white-space:pre-wrap; line-height:1.5; margin-top:10px;"></div>
+<div id="askSources" style="margin-top:14px;"></div>
 <script>
 const box = document.getElementById("searchBox");
 const statsEl = document.getElementById("stats");
@@ -61,6 +71,49 @@ async function runSearch(query) {
 box.addEventListener("input", (e) => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => runSearch(e.target.value), 250);
+});
+const askBtn = document.getElementById("askBtn");
+const askBox = document.getElementById("askBox");
+const askStatus = document.getElementById("askStatus");
+const askAnswer = document.getElementById("askAnswer");
+const askSources = document.getElementById("askSources");
+
+askBtn.addEventListener("click", async () => {
+  const question = askBox.value.trim();
+  if (!question) return;
+
+  askStatus.textContent = "Thinking...";
+  askAnswer.textContent = "";
+  askSources.innerHTML = "";
+  askBtn.disabled = true;
+
+  try {
+    const res = await fetch("/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    const data = await res.json();
+
+    askStatus.textContent = data.low_confidence
+      ? `Low confidence (${data.confidence}) — retrieval found nothing strongly relevant.`
+      : `Confidence: ${data.confidence}`;
+
+    askAnswer.textContent = data.answer;
+
+    if (data.sources && data.sources.length) {
+      askSources.innerHTML = "<strong>Sources:</strong><ul>" +
+        data.sources.map(s => `<li>${s}</li>`).join("") + "</ul>";
+    }
+
+    if (data.citation_flags && data.citation_flags.length) {
+      askSources.innerHTML += `<p style="color:#b45309;">⚠ ${data.citation_flags.length} citation(s) had low overlap with their source and may be weakly supported.</p>`;
+    }
+  } catch (err) {
+    askStatus.textContent = "Something went wrong. Try again.";
+  } finally {
+    askBtn.disabled = false;
+  }
 });
 </script>
 

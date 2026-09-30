@@ -1,21 +1,26 @@
+import os
 import time
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from search_engine import SearchIndex
+from pydantic import BaseModel
+from search_engine import SearchIndex, SemanticSearch
+from rag import answer_question
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-print("Loading index...")
+print("Loading search index...")
 idx = SearchIndex()
 idx.build("data/papers.jsonl")
+print("Loading semantic model...")
+semantic = SemanticSearch()
 print("Ready.")
+
+ADMIN_KEY = os.getenv("ADMIN_KEY")
 
 
 def make_snippet(doc, query_tokens, length=220):
-    """Return a short excerpt of the abstract, trying to center it on a matched word."""
     abstract = doc["abstract"]
     lower = abstract.lower()
     pos = -1
@@ -31,6 +36,16 @@ def make_snippet(doc, query_tokens, length=220):
     prefix = "..." if start > 0 else ""
     suffix = "..." if end < len(abstract) else ""
     return prefix + abstract[start:end] + suffix
+
+
+class NewPaper(BaseModel):
+    title: str
+    abstract: str
+    categories: str = ""
+
+
+class AskRequest(BaseModel):
+    question: str
 
 
 @app.get("/search")
@@ -57,6 +72,28 @@ def search(q: str = Query(..., min_length=1), top_k: int = 10):
         "time_ms": round(elapsed_ms, 2),
         "results": hits,
     }
+
+
+@app.post("/ask")
+def ask(req: AskRequest):
+    return answer_question(req.question, idx, semantic)
+
+
+@app.post("/admin/add_paper")
+def add_paper(paper: NewPaper, x_admin_key: str = Header(None)):
+    if x_admin_key != ADMIN_KEY:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+
+    doc = {
+        "id": f"manual-{len(idx.documents)}",
+        "title": paper.title,
+        "abstract": paper.abstract,
+        "categories": paper.categories,
+        "authors": "",
+    }
+    doc_id = idx.add_paper_live(doc)
+    semantic.add_document(paper.title + ". " + paper.abstract)
+    return {"status": "added", "doc_id": doc_id, "total_papers": len(idx.documents)}
 
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

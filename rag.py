@@ -9,7 +9,7 @@ load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 CONFIDENCE_THRESHOLD = 0.35   # cosine similarity below this = "probably not relevant"
-
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 def check_citation_support(answer_text, sources, overlap_threshold=0.15):
     flags = []
@@ -31,8 +31,11 @@ def check_citation_support(answer_text, sources, overlap_threshold=0.15):
                 flags.append({"sentence": sent.strip(), "citation": f"[{c}]", "overlap": round(overlap, 2)})
     return flags
 
-
+_answer_cache = {}
 def answer_question(query, idx, semantic, top_k=5):
+    key = query.lower().strip()
+    if key in _answer_cache:
+        return _answer_cache[key]
     results = idx.hybrid_search(query, semantic, top_k=top_k)
     best_semantic_score = results[0][2] if results else 0.0
 
@@ -61,21 +64,31 @@ Excerpts:
 Question: {query}"""
 
     answer = None
+    last_error = None
     for attempt in range(3):
         try:
             response = client.models.generate_content(
-                model="gemini-3.8-flash",
+                model=MODEL_NAME,
                 contents=prompt,
             )
             answer = response.text
-            break
+            if answer:
+                break
         except Exception as e:
-            wait = 5 * (attempt + 1)
-            print(f"  Gemini busy (attempt {attempt+1}), waiting {wait}s...")
-            time.sleep(wait)
+            last_error = e
+            print(f"  Gemini error (attempt {attempt+1}): {type(e).__name__}: {e}")
+            msg = str(e)
+            transient = any(code in msg for code in ("503", "429", "500", "UNAVAILABLE", "RESOURCE_EXHAUSTED"))
+            if not transient:
+                break                      # wrong model / bad key: retrying is pointless
+            time.sleep(2 * (attempt + 1))
     if answer is None:
+        print("LLM failed:", last_error)
+        fallback = "\n\n".join(
+            f"[{i+1}] {s['title']}: {s['abstract'][:300]}..." for i, s in enumerate(sources[:3])
+        )
         return {
-            "answer": "The AI model is temporarily overloaded. Please try again in a minute.",
+            "answer": "The AI model couldn't generate a summary right now. Here are the most relevant papers:\n\n" + fallback,
             "sources": [s["title"] for s in sources],
             "confidence": round(float(best_semantic_score), 3),
             "low_confidence": False,
@@ -83,13 +96,15 @@ Question: {query}"""
         }
     flags = check_citation_support(answer, sources)
 
-    return {
+    result = {
         "answer": answer,
         "sources": [s["title"] for s in sources],
         "confidence": round(float(best_semantic_score), 3),
         "low_confidence": False,
         "citation_flags": flags,
     }
+    _answer_cache[key] = result
+    return result
 
 
 if __name__ == "__main__":
