@@ -181,12 +181,17 @@ class SearchIndex:
         return " ".join(self.correct_word(w) for w in TOKEN_RE.findall(query.lower()))
 
 class SemanticSearch:
-    def __init__(self, model_name="all-MiniLM-L6-v2", emb_path="data/embeddings.npy"):
-        from sentence_transformers import SentenceTransformer
-        self.model = SentenceTransformer(model_name)
+    def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2", emb_path="data/embeddings.npy"):
+        from fastembed import TextEmbedding
+        self.model = TextEmbedding(model_name=model_name)
         self.emb_path = emb_path
         self.vectors = np.load(emb_path)
         self._normalize()
+
+    def _encode(self, text):
+        v = np.array(list(self.model.embed([text]))[0], dtype=np.float32)
+        n = np.linalg.norm(v)
+        return v / n if n > 0 else v
 
     def _normalize(self):
         norms = np.linalg.norm(self.vectors, axis=1, keepdims=True)
@@ -194,19 +199,13 @@ class SemanticSearch:
         self.vectors = self.vectors / norms
 
     def query_vector(self, text):
-        v = self.model.encode([text])[0]
-        n = np.linalg.norm(v)
-        return v / n if n > 0 else v
+        return self._encode(text)
 
     def similarity_scores(self, query):
-        q = self.query_vector(query)
-        return self.vectors @ q
+        return self.vectors @ self._encode(query)
 
     def add_document(self, text):
-        """Encode one new document and append it, keeping the .npy file in sync."""
-        v = self.model.encode([text])[0]
-        n = np.linalg.norm(v)
-        v = v / n if n > 0 else v
+        v = self._encode(text)
         self.vectors = np.vstack([self.vectors, v])
         np.save(self.emb_path, self.vectors)
 
