@@ -2,7 +2,7 @@
 
 A search engine and question-answering system built from scratch over ~5,000 arXiv computer science papers. It combines a hand-built BM25 ranking engine with semantic embeddings and a grounded LLM answer layer (RAG).
 
-**Live demo:** [your-render-url-here]
+**Live demo:** https://paper-search-0km4.onrender.com/
 
 <!-- Add a screenshot here, e.g. ![Demo](docs/demo.png) -->
 
