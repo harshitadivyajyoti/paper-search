@@ -4,13 +4,32 @@ A search engine and question-answering system built from scratch over ~5,000 arX
 
 **Live demo:** https://paper-search-0km4.onrender.com/
 
-<!-- Add a screenshot here, e.g. ![Demo](docs/demo.png) -->
-
 ## What it does
 
 - **Keyword search:** type a query and get ranked results from a custom inverted index and BM25 scorer (no external search library).
 - **Ask a question:** get an answer generated only from the retrieved paper abstracts, with citations, and an honest refusal when nothing relevant is found.
 - **Typo tolerant:** "machine lerning" is corrected to "machine learning" before retrieval.
+  
+## Screenshots
+
+**Hybrid keyword search.** Ranked BM25 results with highlighted matches, served in under a millisecond for in-vocabulary queries:
+<img width="1918" height="1031" alt="image" src="https://github.com/user-attachments/assets/d61ff938-5d94-44e0-8ef1-347566c8aa65" />
+
+
+
+
+**Typo-tolerant question answering.** "machine lerning" is corrected before retrieval, and the answer is grounded in the retrieved abstracts with citations:
+<img width="1564" height="784" alt="image" src="https://github.com/user-attachments/assets/950b66c5-c365-43b1-9f29-7d83c4c44912" />
+<img width="1561" height="784" alt="image" src="https://github.com/user-attachments/assets/5897ee35-e5d6-45ab-86d6-0bb25881e8e3" />
+
+
+
+
+**Confidence gate.** When nothing relevant exists, the system refuses instead of guessing:
+<img width="1508" height="812" alt="image" src="https://github.com/user-attachments/assets/dfc9aa9f-1020-4bdb-9068-50a4699a73c3" />
+
+
+
 
 ## Architecture
 
@@ -76,5 +95,5 @@ The repo includes `render.yaml`. In Render choose **New > Blueprint**, select th
 ## Benchmarks
 
 - 5,003 documents indexed in ~15 s
-- Average query time ~10 ms after optimization
+- Average query time ~10 ms (measured locally) after optimization
 - 16,109 unique stemmed tokens in the vocabulary
